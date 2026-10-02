@@ -1207,9 +1207,6 @@ end
 -- =================== FISH PAGE UI ===================
 
 local FishSection = FishPage:Section({ Name = 'Fishing Controls', Side = 1 })
-
-FishSection:Label('ก่อนเริ่ม: เดินไปยืนที่ท่าเรือ/ชายน้ำก่อน (ต้องมีน้ำเปิดโล่งในระยะ 32 studs)\nสคริปต์จะ cast ที่จุดที่คุณยืน — ระบบจะเอาเบ็ดขึ้น hotbar และถือให้เอง')
-
 mainToggleRef = FishSection:Toggle({
 	Name     = 'Enable Auto Fish',
 	Flag     = 'AutoFish',
@@ -1236,8 +1233,6 @@ mainToggleRef = FishSection:Toggle({
 -- =================== STOP ON CATCH ===================
 
 local PresetSection = FishPage:Section({ Name = 'Stop On Catch — Lost Items', Side = 1 })
-
-PresetSection:Label('เปิด = หยุดและ ไม่เก็บ ของนั้นทันทีที่ขึ้นสาย')
 
 for _, itemName in ipairs(PRESET_STOP_ITEMS) do
 	local flagKey = 'StopPreset_' .. itemName:gsub('%s+', '_')
@@ -1277,9 +1272,6 @@ StatsSection:Button({
 -- =================== WEBHOOK PAGE UI ===================
 
 local WebSection = WebhookPage:Section({ Name = 'Discord Webhook', Side = 1 })
-
-WebSection:Label('วาง Discord Webhook URL ข้างล่าง → เปิด Enable → กด Test ทดสอบ\nระบบส่ง embed พร้อม avatar, item, rarity, server ID\nRate limit: 1 req/1.1s (safe สำหรับ Discord limit)')
-
 WebSection:Textbox({
 	Flag        = 'WebhookURL',
 	Default     = '',
@@ -1349,8 +1341,6 @@ WebToolsSection:Button({
 		notify('Webhook', 'Queue cleared.', 2)
 	end
 })
-
-webhookStatsLabel = WebToolsSection:Label('Sent: 0  |  Failed: 0\nQueue: 0')
 
 WebToolsSection:Button({
 	Name     = 'Refresh Stats',
