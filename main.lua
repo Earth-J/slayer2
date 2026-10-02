@@ -1100,6 +1100,8 @@ local DI_DragStart = nil
 local DI_StartPos  = nil
 local libMainFrame = nil
 
+local MENU_KEY = Enum.KeyCode.RightShift   -- เปลี่ยน key ที่นี่
+
 local function buildDynamicIsland()
 	local UIS = game:GetService("UserInputService")
 
@@ -1369,8 +1371,8 @@ WebToolsSection:Button({
 
 notify(
 	'Auto Fish Loaded',
-	'ยืนที่ชายน้ำก่อนเปิด | ตั้ง webhook ใน tab "Webhook" | Lost items อยู่ใน "Auto Fish"',
-	4
+	'ยืนที่ชายน้ำก่อนเปิด | ตั้ง webhook ใน tab "Webhook" | Lost items อยู่ใน "Auto Fish" | [RightShift] เปิด/ปิด UI',
+	5
 )
 
 local preInitGuis = {}
@@ -1381,6 +1383,27 @@ end
 Window:Init()
 
 buildDynamicIsland()
+
+-- =================== MENU KEYBIND ===================
+
+do
+	local UIS = game:GetService("UserInputService")
+	UIS.InputBegan:Connect(function(input, gameProcessed)
+		if gameProcessed then return end
+		if input.KeyCode ~= MENU_KEY then return end
+		if not libMainFrame then return end
+		local show = not libMainFrame.Visible
+		libMainFrame.Visible = show
+		if DI_Frame then
+			if not show then
+				DI_Frame.Position = UDim2.new(0.5, 0, 0, 10)
+			end
+			DI_Frame.Visible = not show
+		end
+	end)
+end
+
+-- =================== END MENU KEYBIND ===================
 
 task.defer(function()
 	task.wait(0.3)
