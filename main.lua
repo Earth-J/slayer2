@@ -517,28 +517,6 @@ local function stopAutoFish(reason, triggerItem)
 	updateStats()
 end
 
--- =================== STATS ===================
-
-local statsLabel
-local function updateStats()
-	if statsLabel then
-		local names = {}
-		for k, v in pairs(stopList) do
-			if v then table.insert(names, k) end
-		end
-		pcall(function()
-			statsLabel:Update(
-				'Items Caught: ' .. fishCaught
-				.. '\nLast Caught: ' .. lastCaught
-				.. '\nLast Attempt: ' .. lastAttempt
-				.. '\nStatus: ' .. fishStatus
-				.. '\nAuto Fish: ' .. (autoFishing and 'ON' or 'OFF')
-				.. '\nStop Items: ' .. (#names > 0 and table.concat(names, ', ') or 'None')
-			)
-		end)
-	end
-end
-
 -- =================== FISHING ENGINE ===================
 
 local BITE_TIMEOUT = 30
@@ -798,6 +776,12 @@ local function collectCatch(root, existing)
 	end
 	local item = tostring(model:GetAttribute('CatchItem'))
 
+
+    if webhookOnCatch then
+		queueWebhook(buildCatchEmbed(item, fishCaught + 1))
+		startWebhookDrain()
+	end
+
 	local willStop, _ = shouldStop({ item })
 	if willStop then
 		return 'skip', item
@@ -886,10 +870,6 @@ local function recordCatch(before, collected, item, missed)
 		lastCaught = names[1]
 		lastAttempt = table.concat(labels, ', ')
 		notify('Fish Caught!', 'Got: ' .. lastAttempt .. '  |  Total: ' .. fishCaught, 2)
-		if webhookOnCatch then
-			queueWebhook(buildCatchEmbed(names[1], fishCaught))
-			startWebhookDrain()
-		end
 		updateStats()
 		local stop, hitItem = shouldStop(names)
 		if stop then
@@ -1374,7 +1354,10 @@ local DI_DragStart = nil
 local DI_StartPos  = nil
 local libMainFrame = nil
 
-local MENU_KEY = Enum.KeyCode.RightShift
+local MENU_KEYS = {
+	[Enum.KeyCode.LeftShift]  = true,
+	[Enum.KeyCode.RightShift] = true,
+}
 
 local function buildDynamicIsland()
 	local UIS = game:GetService("UserInputService")
@@ -1394,6 +1377,7 @@ local function buildDynamicIsland()
 	pill.Position         = UDim2.new(0.5, 0, 0, 10)
 	pill.BackgroundColor3 = Color3.fromRGB(10, 10, 10)
 	pill.BorderSizePixel  = 0
+    pill.Active           = true   -- เพิ่มบรรทัดนี้
 	pill.Visible          = false
 	pill.ZIndex           = 10
 	pill.Parent           = sg
@@ -1438,6 +1422,12 @@ local function buildDynamicIsland()
 			DI_DragInput = input
 			DI_DragStart = input.Position
 			DI_StartPos  = pill.Position
+			-- กัน input ทะลุเกม
+			if game:GetService("UserInputService").MouseEnabled then
+				pcall(function()
+					input:GetService()  -- sink the event
+				end)
+			end
 		end
 	end)
 
@@ -1613,6 +1603,8 @@ WebEventsSection:Toggle({
 
 local WebToolsSection = WebhookPage:Section({ Name = 'Tools & Stats', Side = 1 })
 
+webhookStatsLabel = WebToolsSection:Label('Sent: 0  |  Failed: 0 | Queue: 0')
+
 WebToolsSection:Button({
 	Name     = 'Send Test Embed',
 	Flag     = 'WebhookTest',
@@ -1658,7 +1650,7 @@ WebToolsSection:Button({
 
 notify(
 	'Auto Fish Loaded',
-	'ยืนที่ชายน้ำก่อนเปิด | ตั้ง webhook ใน tab "Webhook" | Lost items อยู่ใน "Auto Fish" | [RightShift] เปิด/ปิด UI',
+	'[LeftShift / RightShift] เปิด/ปิด UI',
 	5
 )
 
@@ -1676,8 +1668,7 @@ buildDynamicIsland()
 do
 	local UIS = game:GetService("UserInputService")
 	UIS.InputBegan:Connect(function(input, gameProcessed)
-		if gameProcessed then return end
-		if input.KeyCode ~= MENU_KEY then return end
+		if not MENU_KEYS[input.KeyCode] then return end
 		if not libMainFrame then return end
 		local show = not libMainFrame.Visible
 		libMainFrame.Visible = show
