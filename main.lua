@@ -68,14 +68,12 @@ local webhookStatsLabel = nil
 
 -- =================== BAIT / ROD PRIORITY ===================
 
--- Priority order for bait auto-equip (best → worst)
 local BAIT_PRIORITY = {
 	'Golden Tentacle',
 	'Fish Head',
 	'Worm',
 }
 
--- Auto-equip best rod toggle state
 local autoBestRod  = true
 local autoBait     = true
 
@@ -235,8 +233,6 @@ end
 
 -- =================== BAIT & BEST ROD HELPERS ===================
 
--- Equip the highest-rarity rod from inventory into its hotbar slot.
--- Runs via SignalEvent exactly like the inventory menu does.
 local function doEquipBestRod()
 	if not autoBestRod then return end
 	pcall(function()
@@ -255,7 +251,6 @@ local function doEquipBestRod()
 			end
 		end
 		if not best then return end
-		-- Put on hotbar if not already there
 		local index = Data.hotbarIndex(best)
 		if not index then
 			local _, toolbar = Data.inventory()
@@ -269,7 +264,6 @@ local function doEquipBestRod()
 	Env.elevate()
 end
 
--- Equip the best available bait via SignalEvent EquipBait.
 local function doEquipBait()
 	if not autoBait then return end
 	pcall(function()
@@ -523,49 +517,25 @@ local function stopAutoFish(reason, triggerItem)
 	updateStats()
 end
 
--- =================== INDEPENDENT AUTO-PICKUP LOOP ===================
+-- =================== STATS ===================
 
-local autoPickup       = true
-local pickupConn       = nil
-local PICKUP_RANGE     = 50   -- studs
-
-local function startPickupLoop()
-	if pickupConn then
-		pickupConn:Disconnect()
-		pickupConn = nil
-	end
-	pickupConn = RunService.Heartbeat:Connect(function()
-		if not autoPickup or not autoFishing then return end
-		local root = Data.character()
-		local debree = workspace:FindFirstChild('Debree')
-		if not root or not debree then return end
-		for _, child in ipairs(debree:GetChildren()) do
-			if child:GetAttribute('CatchItem') ~= nil then
-				local part = child:IsA('BasePart') and child
-					or child:FindFirstChildWhichIsA('BasePart', true)
-				if part and (part.Position - root.Position).Magnitude <= PICKUP_RANGE then
-					local prompt = child:FindFirstChildWhichIsA('ProximityPrompt', true)
-					if prompt and prompt.Enabled then
-						pcall(function()
-							if fireproximityprompt then
-								fireproximityprompt(prompt)
-							else
-								prompt:InputHoldBegin()
-								task.wait(0.05)
-								prompt:InputHoldEnd()
-							end
-						end)
-					end
-				end
-			end
+local statsLabel
+local function updateStats()
+	if statsLabel then
+		local names = {}
+		for k, v in pairs(stopList) do
+			if v then table.insert(names, k) end
 		end
-	end)
-end
-
-local function stopPickupLoop()
-	if pickupConn then
-		pickupConn:Disconnect()
-		pickupConn = nil
+		pcall(function()
+			statsLabel:Update(
+				'Items Caught: ' .. fishCaught
+				.. '\nLast Caught: ' .. lastCaught
+				.. '\nLast Attempt: ' .. lastAttempt
+				.. '\nStatus: ' .. fishStatus
+				.. '\nAuto Fish: ' .. (autoFishing and 'ON' or 'OFF')
+				.. '\nStop Items: ' .. (#names > 0 and table.concat(names, ', ') or 'None')
+			)
+		end)
 	end
 end
 
@@ -1157,7 +1127,6 @@ end
 
 local function cleanupFishing()
 	disconnectAll()
-	stopPickupLoop()
 	stopFreeze()
 	local equipped = Data.equipped()
 	if equipped and fishingSlot and (equipped.Value == fishingSlot or equipped.Value == 0) then
@@ -1176,13 +1145,11 @@ local function fishingLoop()
 		stopAutoFish(tostring(err))
 		return
 	end
-	-- Equip best rod into hotbar, then equip best bait
 	doEquipBestRod()
 	task.wait(0.5)
 	doEquipBait()
 	task.wait(0.3)
 
-	startPickupLoop()
 	connectEvents()
 	strikes = 0
 
@@ -1219,26 +1186,20 @@ local StarterGui      = game:GetService("StarterGui")
 local RenderSvc       = game:GetService("RunService")
 local UserGameSettings = UserSettings():GetService("UserGameSettings")
 
--- ── Anti AFK ──────────────────────────────────────────────────────────────────
 local afkConn = nil
 
 local function setAntiAfk(enabled)
 	if enabled then
 		if afkConn then return end
-		-- Fires a fake VR input every 15 min to prevent idle kick (fires the
-		-- same RemoteEvent the Roblox idle detector listens to internally).
 		afkConn = RunService.Heartbeat:Connect(function()
-			-- reset idle timer via hidden API; fallback: simulate a tiny VR event
 			pcall(function()
-				LocalPlayer:GetMouse() -- touch keeps idle timer alive in most executors
+				LocalPlayer:GetMouse()
 			end)
 		end)
-		-- Also hook the AFK popup before it fires
 		pcall(function()
 			local idleConn
 			idleConn = LocalPlayer.Idled:Connect(function()
 				pcall(function()
-					-- dismiss the kick countdown by firing a fake input
 					game:GetService("VirtualUser"):CaptureController()
 					game:GetService("VirtualUser"):ClickButton2(Vector2.new())
 				end)
@@ -1252,17 +1213,14 @@ local function setAntiAfk(enabled)
 	end
 end
 
--- ── FPS Cap ───────────────────────────────────────────────────────────────────
 local fpsCap     = 60
 local fpsCapConn = nil
 
 local function setFpsCap(cap)
 	fpsCap = cap
-	-- setfpscap is available on most modern executors
 	if setfpscap then
 		pcall(setfpscap, cap)
 	else
-		-- Fallback: throttle via RenderStepped sleep
 		if fpsCapConn then fpsCapConn:Disconnect() fpsCapConn = nil end
 		if cap < 300 then
 			local frameTime = 1 / cap
@@ -1275,7 +1233,6 @@ local function setFpsCap(cap)
 	end
 end
 
--- ── No 3D Render (freeze renderer client-side) ────────────────────────────────
 local no3DActive = false
 
 local function setNo3DRender(enabled)
@@ -1283,7 +1240,6 @@ local function setNo3DRender(enabled)
 	pcall(function()
 		local settings = settings()
 		if settings then
-			-- Disabling rendering passes reduces GPU load significantly
 			settings.Rendering.QualityLevel = enabled
 				and Enum.QualityLevel.Level01
 				or  Enum.QualityLevel.Automatic
@@ -1292,7 +1248,6 @@ local function setNo3DRender(enabled)
 	pcall(function()
 		workspace.StreamingEnabled = false
 	end)
-	-- Collapse shadow and light detail
 	pcall(function()
 		Lighting.GlobalShadows      = not enabled
 		Lighting.FogEnd             = enabled and 1    or 100000
@@ -1300,8 +1255,6 @@ local function setNo3DRender(enabled)
 	end)
 end
 
--- ── Potato Mode ───────────────────────────────────────────────────────────────
--- Combines low quality level + disables textures/decorations/particles
 local potatoOriginals = {}
 local potatoActive    = false
 
@@ -1313,7 +1266,6 @@ local function setPotatoMode(enabled)
 			and Enum.SavedQualitySetting.QualityLevel1
 			or  Enum.SavedQualitySetting.Automatic
 	end)
-	-- Kill/restore every Texture, Decal, ParticleEmitter, Trail, Beam in workspace
 	for _, obj in ipairs(workspace:GetDescendants()) do
 		local t = obj.ClassName
 		if t == 'Texture' or t == 'Decal' or t == 'ParticleEmitter'
@@ -1329,7 +1281,6 @@ local function setPotatoMode(enabled)
 			end
 		end
 	end
-	-- Mute atmosphere & sky
 	for _, obj in ipairs(Lighting:GetChildren()) do
 		if obj:IsA('Atmosphere') or obj:IsA('Sky') then
 			if enabled then
@@ -1339,7 +1290,6 @@ local function setPotatoMode(enabled)
 		end
 	end
 	if not enabled then
-		-- Restore sky/atmosphere
 		for obj, parent in pairs(potatoOriginals) do
 			if typeof(parent) == 'Instance' then
 				pcall(function() obj.Parent = parent end)
@@ -1349,9 +1299,6 @@ local function setPotatoMode(enabled)
 	end
 end
 
--- ── Hide Map ──────────────────────────────────────────────────────────────────
--- Hides the map layer inside PlayerGui (Slayers 2 keeps the minimap in a
--- ScreenGui named "Map" or "Minimap" / "HUD").  Tries several known names.
 local MAP_GUI_NAMES  = { 'Map', 'Minimap', 'HUD_Map', 'WorldMap', 'MapGui' }
 local hiddenMapGuis  = {}
 
@@ -1427,7 +1374,7 @@ local DI_DragStart = nil
 local DI_StartPos  = nil
 local libMainFrame = nil
 
-local MENU_KEY = Enum.KeyCode.RightShift   -- เปลี่ยน key ที่นี่
+local MENU_KEY = Enum.KeyCode.RightShift
 
 local function buildDynamicIsland()
 	local UIS = game:GetService("UserInputService")
@@ -1508,7 +1455,6 @@ local function buildDynamicIsland()
 		if input == DI_DragInput and DI_Dragging then
 			local d = input.Position - DI_DragStart
 			if math.abs(d.X) < 6 and math.abs(d.Y) < 6 then
-				-- reset กลับ top-center ทุกครั้งก่อน hide
 				pill.Position = UDim2.new(0.5, 0, 0, 10)
 				pill.Visible = false
 				if libMainFrame then
@@ -1577,20 +1523,6 @@ FishSection:Toggle({
 		autoBait = v
 		if v and running then
 			task.spawn(doEquipBait)
-		end
-	end
-})
-
-FishSection:Toggle({
-	Name     = 'Auto Pickup (Heartbeat)',
-	Flag     = 'AutoPickup',
-	Default  = true,
-	Callback = function(v)
-		autoPickup = v
-		if v and autoFishing then
-			startPickupLoop()
-		elseif not v then
-			stopPickupLoop()
 		end
 	end
 })
@@ -1758,8 +1690,6 @@ do
 	end)
 end
 
--- =================== END MENU KEYBIND ===================
-
 task.defer(function()
 	task.wait(0.3)
 	for _, gui in ipairs(game:GetService("CoreGui"):GetChildren()) do
@@ -1770,7 +1700,6 @@ task.defer(function()
 					child:GetPropertyChangedSignal("Visible"):Connect(function()
 						if DI_Frame then
 							if not child.Visible then
-								-- reset position ก่อนโชว์ทุกครั้ง
 								DI_Frame.Position = UDim2.new(0.5, 0, 0, 10)
 							end
 							DI_Frame.Visible = not child.Visible
