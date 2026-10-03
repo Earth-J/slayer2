@@ -1,4 +1,10 @@
--- Safe loader for UI library
+-- =================== STARTUP GUARD ===================
+if not game:IsLoaded() then
+    game.Loaded:Wait()
+end
+task.wait(1.5)
+-- =====================================================
+
 local function safeLoad(url, label)
     local ok, src = pcall(game.HttpGet, game, url)
     if not ok or type(src) ~= "string" or #src < 10 then
@@ -23,14 +29,14 @@ local Library = safeLoad(
     "Mentality UI"
 )
 local Window = Library:Window({
-	Name    = "Auto Fish",
+	Name    = "Earth Hub",
 	SubName = "Slayers 2 Fishing Automation",
 	Logo    = "120959262762131"
 })
 
-local FishPage    = Window:Page({ Name = "Auto Fish", Icon = "138827881557940" })
-local PerfPage    = Window:Page({ Name = "Perf",      Icon = "123944728972740" })
-local WebhookPage = Window:Page({ Name = "Webhook",   Icon = "134236649319095" })
+local FishPage     = Window:Page({ Name = "Auto Fish", Icon = "138827881557940" })
+local PerfPage     = Window:Page({ Name = "Perf",      Icon = "123944728972740" })
+local WebhookPage  = Window:Page({ Name = "Webhook",   Icon = "134236649319095" })
 local SettingsPage = Library:CreateSettingsPage(Window)
 
 -- =================== SERVICES / STATE ===================
@@ -53,17 +59,19 @@ local stopList     = {}
 local running      = false
 local manualEquip  = false
 
--- Webhook state
-local webhookEnabled  = false
-local webhookURL      = ''
-local webhookOnCatch  = true
-local webhookOnStop   = true
-local webhookOnStart  = true
-local webhookQueue    = {}
-local webhookSending  = false
-local webhookSent     = 0
-local webhookFailed   = 0
-local WEBHOOK_RATE    = 1.1
+local webhookEnabled   = false
+local webhookURL       = ''
+local webhookPingID    = ''
+local screenshotOnStop = false
+local webhookOnCatch   = true
+local webhookOnStop    = true
+local webhookOnStart   = true
+local webhookQueue     = {}
+local webhookSending   = false
+local webhookSent      = 0
+local webhookFailed    = 0
+local WEBHOOK_RATE     = 1.1
+local SAVE_FILE        = 'autofish_config.json'
 local webhookStatsLabel = nil
 
 -- =================== BAIT / ROD PRIORITY ===================
@@ -74,8 +82,8 @@ local BAIT_PRIORITY = {
 	'Worm',
 }
 
-local autoBestRod  = true
-local autoBait     = true
+local autoBestRod = true
+local autoBait    = true
 
 -- =================== PRESET STOP ITEMS ===================
 
@@ -283,11 +291,11 @@ end
 -- =================== RARITY HELPERS ===================
 
 local RARITY_MAP = {
-	{ keys = { 'legendary', 'mythic', 'divine', 'godly' },        color = 0xFFD700 },
-	{ keys = { 'epic', 'ancient', 'arcane' },                      color = 0x9B59B6 },
-	{ keys = { 'rare', 'unique' },                                  color = 0x3498DB },
-	{ keys = { 'uncommon', 'special' },                             color = 0x2ECC71 },
-	{ keys = { 'common', 'normal', 'trash', 'junk', 'boot' },      color = 0x95A5A6 },
+	{ keys = { 'legendary', 'mythic', 'divine', 'godly' },       color = 0xFFD700 },
+	{ keys = { 'epic', 'ancient', 'arcane' },                     color = 0x9B59B6 },
+	{ keys = { 'rare', 'unique' },                                 color = 0x3498DB },
+	{ keys = { 'uncommon', 'special' },                            color = 0x2ECC71 },
+	{ keys = { 'common', 'normal', 'trash', 'junk', 'boot' },     color = 0x95A5A6 },
 }
 
 local function rarityColor(itemName)
@@ -330,10 +338,10 @@ local function buildCatchEmbed(itemName, total)
 	return {
 		embeds = {
 			{
-				title = '🎣  Fish Caught!',
-				color = rarityColor(itemName),
+				title     = '🎣  Fish Caught!',
+				color     = rarityColor(itemName),
 				thumbnail = { url = getAvatarURL() },
-				fields = {
+				fields    = {
 					{ name = 'Player', value = LocalPlayer.Name,       inline = true },
 					{ name = 'Item',   value = '`' .. itemName .. '`', inline = true },
 					{ name = 'Rarity', value = rarityLabel(itemName),  inline = true },
@@ -341,7 +349,7 @@ local function buildCatchEmbed(itemName, total)
 					{ name = 'Game',   value = getGameInfo(),          inline = true },
 					{ name = 'Server', value = game.JobId ~= '' and game.JobId:sub(1,8) .. '…' or 'Private', inline = true },
 				},
-				footer = { text = 'AutoFish • slopix style' },
+				footer    = { text = 'AutoFish • slopix style' },
 				timestamp = os.date('!%Y-%m-%dT%H:%M:%SZ')
 			}
 		}
@@ -350,18 +358,19 @@ end
 
 local function buildStopEmbed(itemName, total)
 	return {
-		embeds = {
+		content = webhookPingID ~= '' and ('<@' .. webhookPingID .. '>') or nil,
+		embeds  = {
 			{
-				title = '🛑  Auto Fish Stopped',
-				color = 0xFF4444,
+				title     = '🛑  Auto Fish Stopped',
+				color     = 0xFF4444,
 				thumbnail = { url = getAvatarURL() },
-				fields = {
+				fields    = {
 					{ name = 'Player',       value = LocalPlayer.Name,       inline = true },
 					{ name = 'Trigger Item', value = '`' .. itemName .. '`', inline = true },
 					{ name = 'Total Caught', value = tostring(total),        inline = true },
 					{ name = 'Game',         value = getGameInfo(),          inline = false },
 				},
-				footer = { text = 'AutoFish • slopix style' },
+				footer    = { text = 'AutoFish • slopix style' },
 				timestamp = os.date('!%Y-%m-%dT%H:%M:%SZ')
 			}
 		}
@@ -372,14 +381,14 @@ local function buildStartEmbed()
 	return {
 		embeds = {
 			{
-				title = '▶️  Auto Fish Started',
-				color = 0x50B4FF,
+				title     = '▶️  Auto Fish Started',
+				color     = 0x50B4FF,
 				thumbnail = { url = getAvatarURL() },
-				fields = {
+				fields    = {
 					{ name = 'Player', value = LocalPlayer.Name, inline = true },
 					{ name = 'Game',   value = getGameInfo(),    inline = true },
 				},
-				footer = { text = 'AutoFish • slopix style' },
+				footer    = { text = 'AutoFish • slopix style' },
 				timestamp = os.date('!%Y-%m-%dT%H:%M:%SZ')
 			}
 		}
@@ -442,38 +451,33 @@ end
 
 local function startFreeze()
 	local root = Data.character()
-	if root then
-		pcall(function() root.Anchored = true end)
-	end
+	if root then pcall(function() root.Anchored = true end) end
 end
 
 local function stopFreeze()
 	local root = Data.character()
-	if root then
-		pcall(function() root.Anchored = false end)
-	end
+	if root then pcall(function() root.Anchored = false end) end
 end
 
 -- =================== STATS ===================
 
 local statsLabel
 local function updateStats()
-	if statsLabel then
-		local names = {}
-		for k, v in pairs(stopList) do
-			if v then table.insert(names, k) end
-		end
-		pcall(function()
-			statsLabel:Update(
-				'Items Caught: ' .. fishCaught
-				.. '\nLast Caught: ' .. lastCaught
-				.. '\nLast Attempt: ' .. lastAttempt
-				.. '\nStatus: ' .. fishStatus
-				.. '\nAuto Fish: ' .. (autoFishing and 'ON' or 'OFF')
-				.. '\nStop Items: ' .. (#names > 0 and table.concat(names, ', ') or 'None')
-			)
-		end)
+	if not statsLabel then return end
+	local names = {}
+	for k, v in pairs(stopList) do
+		if v then table.insert(names, k) end
 	end
+	pcall(function()
+		statsLabel:Update(
+			'Items Caught: ' .. fishCaught
+			.. '\nLast Caught: ' .. lastCaught
+			.. '\nLast Attempt: ' .. lastAttempt
+			.. '\nStatus: ' .. fishStatus
+			.. '\nAuto Fish: ' .. (autoFishing and 'ON' or 'OFF')
+			.. '\nStop Items: ' .. (#names > 0 and table.concat(names, ', ') or 'None')
+		)
+	end)
 end
 
 local function setStatus(text)
@@ -493,6 +497,48 @@ local function shouldStop(items)
 end
 
 local mainToggleRef
+
+local function saveConfig()
+	pcall(function()
+		local data = {
+			webhookURL       = webhookURL,
+			webhookPingID    = webhookPingID,
+			webhookEnabled   = webhookEnabled,
+			webhookOnCatch   = webhookOnCatch,
+			webhookOnStop    = webhookOnStop,
+			webhookOnStart   = webhookOnStart,
+			screenshotOnStop = screenshotOnStop,
+			autoBestRod      = autoBestRod,
+			autoBait         = autoBait,
+			stopList         = stopList,
+		}
+		writefile(SAVE_FILE, HttpService:JSONEncode(data))
+	end)
+end
+
+local savedConfig = {}
+local function loadConfig()
+	pcall(function()
+		if not isfile(SAVE_FILE) then return end
+		local raw = readfile(SAVE_FILE)
+		savedConfig = HttpService:JSONDecode(raw) or {}
+	end)
+end
+
+loadConfig()
+
+webhookURL       = savedConfig.webhookURL      or ''
+webhookPingID    = savedConfig.webhookPingID   or ''
+webhookEnabled   = savedConfig.webhookEnabled  or false
+webhookOnCatch   = savedConfig.webhookOnCatch   ~= nil and savedConfig.webhookOnCatch   or true
+webhookOnStop    = savedConfig.webhookOnStop    ~= nil and savedConfig.webhookOnStop    or true
+webhookOnStart   = savedConfig.webhookOnStart   ~= nil and savedConfig.webhookOnStart   or true
+screenshotOnStop = savedConfig.screenshotOnStop or false
+autoBestRod      = savedConfig.autoBestRod      ~= nil and savedConfig.autoBestRod      or true
+autoBait         = savedConfig.autoBait         ~= nil and savedConfig.autoBait         or true
+if type(savedConfig.stopList) == 'table' then
+	stopList = savedConfig.stopList
+end
 
 local function notify(title, desc, duration)
 	Library:Notification({
@@ -592,7 +638,7 @@ end
 
 local function onOurLine(model)
 	local line = model:FindFirstChild('FishingLine', true)
-	local tip = line and line:IsA('RopeConstraint') and line.Attachment0
+	local tip  = line and line:IsA('RopeConstraint') and line.Attachment0
 	local char = LocalPlayer.Character
 	return tip ~= nil and tip ~= false and char ~= nil and tip:IsDescendantOf(char)
 end
@@ -603,9 +649,7 @@ local function minigameLoops()
 	for _, connection in ipairs(getconnections(RunService.RenderStepped)) do
 		local fn = connection.Function
 		local ok, source = false, nil
-		if fn then
-			ok, source = pcall(debug.info, fn, 's')
-		end
+		if fn then ok, source = pcall(debug.info, fn, 's') end
 		if ok and type(source) == 'string' and string.find(source, 'BarKeepup', 1, true) then
 			loops[#loops + 1] = connection
 		end
@@ -649,7 +693,7 @@ local function newCatch(root, existing)
 	for _, model in ipairs(Debree:GetChildren()) do
 		if not existing[model] and model:GetAttribute('CatchItem') then
 			local prompt = model:FindFirstChildWhichIsA('ProximityPrompt', true)
-			local part = prompt and prompt.Parent
+			local part   = prompt and prompt.Parent
 			if part and part:IsA('BasePart') then
 				local distance = (part.Position - root.Position).Magnitude
 				if not bestDistance or distance < bestDistance then
@@ -675,13 +719,13 @@ local function waterTarget(root, char)
 	ground.FilterDescendantsInstances = { char, Debree }
 	for radius = 8, 32, 4 do
 		for index = 0, 15 do
-			local angle = index * math.pi / 8
+			local angle  = index * math.pi / 8
 			local origin = root.Position + Vector3.new(math.cos(angle) * radius, 50, math.sin(angle) * radius)
-			local direction = Vector3.new(0, -150, 0)
-			local hit = workspace:Raycast(origin, direction, water)
-			local obstruction = workspace:Raycast(origin, direction, ground)
+			local dir    = Vector3.new(0, -150, 0)
+			local hit    = workspace:Raycast(origin, dir, water)
+			local obs    = workspace:Raycast(origin, dir, ground)
 			if hit and (hit.Instance.Name == 'Texture' or hit.Instance.Name == 'TouchPart')
-				and (not obstruction or obstruction.Position.Y <= hit.Position.Y + 0.1) then
+				and (not obs or obs.Position.Y <= hit.Position.Y + 0.1) then
 				return hit.Position
 			end
 		end
@@ -694,7 +738,7 @@ local function stillOn()
 end
 
 local function waitUntil(done, seconds)
-	local deadline = os.clock() + seconds
+	local deadline  = os.clock() + seconds
 	local nextCheck = 0
 	while not done() do
 		local now = os.clock()
@@ -721,22 +765,20 @@ local function reel()
 	local lastY, lastTime, held, currentGui
 	local deadline = os.clock() + 45
 	while stillOn() and LocalPlayer:GetAttribute('FishingBite') do
-		if os.clock() >= deadline then
-			return false, 'Reeling timed out'
-		end
-		local misc = LocalPlayer.PlayerGui:FindFirstChild('Misc')
+		if os.clock() >= deadline then return false, 'Reeling timed out' end
+		local misc    = LocalPlayer.PlayerGui:FindFirstChild('Misc')
 		local tracker = misc and misc:FindFirstChild('tracker', true)
-		local bar = tracker and tracker.Parent:FindFirstChild('Bar')
+		local bar     = tracker and tracker.Parent:FindFirstChild('Bar')
 		if bar then
 			local gui = tracker:FindFirstAncestorOfClass('CanvasGroup')
 			if currentGui ~= gui then
 				lastY, lastTime, held, currentGui = nil, nil, nil, gui
 			end
-			local now = os.clock()
-			local y = bar.AbsolutePosition.Y + bar.AbsoluteSize.Y / 2
-			local target = tracker.AbsolutePosition.Y + tracker.AbsoluteSize.Y / 2
+			local now      = os.clock()
+			local y        = bar.AbsolutePosition.Y + bar.AbsoluteSize.Y / 2
+			local target   = tracker.AbsolutePosition.Y + tracker.AbsoluteSize.Y / 2
 			local velocity = lastY and (y - lastY) / math.max(now - lastTime, 0.001) or 0
-			local press = y + velocity * 0.18 > target
+			local press    = y + velocity * 0.18 > target
 			if gui and press ~= held then
 				local invoked = false
 				for _, connection in ipairs(getconnections(press and gui.InputBegan or gui.InputEnded)) do
@@ -745,9 +787,7 @@ local function reel()
 						invoked = true
 					end
 				end
-				if not invoked then
-					return false, 'The fishing input handler is unavailable'
-				end
+				if not invoked then return false, 'The fishing input handler is unavailable' end
 				held = press
 			end
 			lastY, lastTime = y, now
@@ -771,26 +811,19 @@ local function collectCatch(root, existing)
 			return model ~= nil or biteMissed
 		end, 1.2)
 	end
-	if not model or not model.Parent then
-		return nil
-	end
+	if not model or not model.Parent then return nil end
 	local item = tostring(model:GetAttribute('CatchItem'))
 
-
-    if webhookOnCatch then
+	if webhookOnCatch then
 		queueWebhook(buildCatchEmbed(item, fishCaught + 1))
 		startWebhookDrain()
 	end
 
 	local willStop, _ = shouldStop({ item })
-	if willStop then
-		return 'skip', item
-	end
+	if willStop then return 'skip', item end
 
 	local prompt = model:FindFirstChildWhichIsA('ProximityPrompt', true)
-	if not found or not prompt then
-		return false, item
-	end
+	if not found or not prompt then return false, item end
 	setStatus(string.format('Pulling in %s...', item))
 	local shown, seen, holding, triggered = false, false, false, false
 	local promptConnections = {
@@ -813,9 +846,7 @@ local function collectCatch(root, existing)
 	end
 	local deadline = os.clock() + 8
 	while model.Parent and not triggered and os.clock() < deadline do
-		if not waitUntil(ready, deadline - os.clock()) or not model.Parent then
-			break
-		end
+		if not waitUntil(ready, deadline - os.clock()) or not model.Parent then break end
 		setStatus(string.format('Collecting %s...', item))
 		holding = true
 		pcall(prompt.InputHoldBegin, prompt)
@@ -824,9 +855,7 @@ local function collectCatch(root, existing)
 		end, prompt.HoldDuration + 1)
 		pcall(prompt.InputHoldEnd, prompt)
 		if ended == nil then break end
-		if ended == false then
-			shown, seen = false, true
-		end
+		if ended == false then shown, seen = false, true end
 	end
 	if triggered then
 		waitUntil(function() return model.Parent == nil end, 1)
@@ -853,7 +882,7 @@ local function readGains(before, collected)
 			local gain = amount - (before[name] or 0)
 			if gain > 0 then
 				total += gain
-				names[#names + 1] = name
+				names[#names + 1]  = name
 				labels[#labels + 1] = string.format('%s x%d', name, gain)
 			end
 		end
@@ -867,7 +896,7 @@ local function recordCatch(before, collected, item, missed)
 	local total, names, labels = readGains(before, collected)
 	if total > 0 then
 		fishCaught += total
-		lastCaught = names[1]
+		lastCaught  = names[1]
 		lastAttempt = table.concat(labels, ', ')
 		notify('Fish Caught!', 'Got: ' .. lastAttempt .. '  |  Total: ' .. fishCaught, 2)
 		updateStats()
@@ -898,12 +927,12 @@ local function ensureSpot()
 		task.wait(0.2)
 	end
 	local grounded = humanoid.FloorMaterial ~= Enum.Material.Air and (char:GetAttribute('SwimState') or 0) == 0
-	local target = nil
+	local target   = nil
 	if grounded then
 		if lastSpot and (root.Position - lastSpot.from).Magnitude < 2 then
 			target = lastSpot.target
 		else
-			target = waterTarget(root, char)
+			target   = waterTarget(root, char)
 			lastSpot = target and { from = root.Position, target = target } or nil
 		end
 	end
@@ -935,9 +964,7 @@ local function equipRod(index, rod)
 		equipped.Value = index
 		local held = waitUntil(holding, 2)
 		if held == nil then return nil end
-		if held then
-			return waitOn(0.2) or nil
-		end
+		if held then return waitOn(0.2) or nil end
 	end
 	return false
 end
@@ -977,8 +1004,8 @@ local function fishOnce()
 	if held == nil then return true end
 	if not held then return false, 'The game refused to equip ' .. rod, true end
 
-	local before = Data.counts()
-	local instant = instantReel
+	local before   = Data.counts()
+	local instant  = instantReel
 	biteToken, biteAt, biteMissed, biteCancelled, myCatch = nil, nil, nil, nil, nil
 	setStatus('Casting with ' .. rod .. '...')
 	local cast = castLine(target)
@@ -999,7 +1026,7 @@ local function fishOnce()
 		return LocalPlayer:GetAttribute('FishingBite') == true
 	end
 	local bobber = myBobber
-	local bite = waitUntil(function()
+	local bite   = waitUntil(function()
 		return bitten() or bobber.Parent == nil
 	end, BITE_TIMEOUT)
 	if bite == nil then return true end
@@ -1017,7 +1044,7 @@ local function fishOnce()
 			return true
 		end
 		if closeBiteUi() then
-			setStatus('Reeling (the game makes you wait 4.5s)...')
+			setStatus('Reeling...')
 			local dropped = waitUntil(function()
 				return biteCancelled == true
 			end, biteAt + REEL_DELAY - os.clock())
@@ -1034,7 +1061,7 @@ local function fishOnce()
 		end
 	end
 	if not instant then
-		setStatus('Reeling (playing the minigame)...')
+		setStatus('Reeling...')
 		local reeled, reelWhy = reel()
 		if getconnections then
 			pcall(disconnectMinigameLoops)
@@ -1049,15 +1076,13 @@ local function fishOnce()
 	local collected, item = collectCatch(root, existing)
 
 	if collected == 'skip' then
-		lastAttempt = 'Skipped (stop list): ' .. (item or '?')
+		lastAttempt = 'Skipped: ' .. (item or '?')
 		updateStats()
 		stopAutoFish('หยุดเพราะได้ "' .. (item or '?') .. '" ที่ตั้งไว้', item)
 		return true
 	end
 
-	if recordCatch(before, collected, item, biteMissed) then
-		return true
-	end
+	if recordCatch(before, collected, item, biteMissed) then return true end
 	if not collected then
 		waitOn(verdictAt + UNCAST_TIME - os.clock())
 	end
@@ -1093,10 +1118,7 @@ local function connectEvents()
 				for _ = 1, 15 do
 					task.wait()
 					if not child.Parent then return end
-					if onOurLine(child) then
-						myCatch = child
-						return
-					end
+					if onOurLine(child) then myCatch = child return end
 				end
 			end)
 		elseif string.sub(child.Name, 1, 12) == 'FishingLine_' and onOurLine(child) then
@@ -1161,35 +1183,27 @@ end
 
 -- =================== PERFORMANCE SYSTEMS ===================
 
-local Lighting        = game:GetService("Lighting")
-local StarterGui      = game:GetService("StarterGui")
-local RenderSvc       = game:GetService("RunService")
+local Lighting         = game:GetService("Lighting")
 local UserGameSettings = UserSettings():GetService("UserGameSettings")
 
-local afkConn = nil
+local afkConn  = nil
+local idleConn = nil
 
 local function setAntiAfk(enabled)
 	if enabled then
 		if afkConn then return end
 		afkConn = RunService.Heartbeat:Connect(function()
-			pcall(function()
-				LocalPlayer:GetMouse()
-			end)
+			pcall(function() LocalPlayer:GetMouse() end)
 		end)
-		pcall(function()
-			local idleConn
-			idleConn = LocalPlayer.Idled:Connect(function()
-				pcall(function()
-					game:GetService("VirtualUser"):CaptureController()
-					game:GetService("VirtualUser"):ClickButton2(Vector2.new())
-				end)
+		idleConn = LocalPlayer.Idled:Connect(function()
+			pcall(function()
+				game:GetService("VirtualUser"):CaptureController()
+				game:GetService("VirtualUser"):ClickButton2(Vector2.new())
 			end)
 		end)
 	else
-		if afkConn then
-			afkConn:Disconnect()
-			afkConn = nil
-		end
+		if afkConn  then afkConn:Disconnect()  afkConn  = nil end
+		if idleConn then idleConn:Disconnect() idleConn = nil end
 	end
 end
 
@@ -1205,9 +1219,7 @@ local function setFpsCap(cap)
 		if cap < 300 then
 			local frameTime = 1 / cap
 			fpsCapConn = RunService.RenderStepped:Connect(function(dt)
-				if dt < frameTime then
-					pcall(task.wait, frameTime - dt)
-				end
+				if dt < frameTime then pcall(task.wait, frameTime - dt) end
 			end)
 		end
 	end
@@ -1218,20 +1230,18 @@ local no3DActive = false
 local function setNo3DRender(enabled)
 	no3DActive = enabled
 	pcall(function()
-		local settings = settings()
-		if settings then
-			settings.Rendering.QualityLevel = enabled
+		local s = settings()
+		if s then
+			s.Rendering.QualityLevel = enabled
 				and Enum.QualityLevel.Level01
 				or  Enum.QualityLevel.Automatic
 		end
 	end)
+	pcall(function() workspace.StreamingEnabled = false end)
 	pcall(function()
-		workspace.StreamingEnabled = false
-	end)
-	pcall(function()
-		Lighting.GlobalShadows      = not enabled
-		Lighting.FogEnd             = enabled and 1    or 100000
-		Lighting.Brightness         = enabled and 0    or 2
+		Lighting.GlobalShadows = not enabled
+		Lighting.FogEnd        = enabled and 1    or 100000
+		Lighting.Brightness    = enabled and 0    or 2
 	end)
 end
 
@@ -1255,9 +1265,7 @@ local function setPotatoMode(enabled)
 				pcall(function() obj.Enabled = false end)
 			else
 				local orig = potatoOriginals[obj]
-				if orig ~= nil then
-					pcall(function() obj.Enabled = orig end)
-				end
+				if orig ~= nil then pcall(function() obj.Enabled = orig end) end
 			end
 		end
 	end
@@ -1279,8 +1287,8 @@ local function setPotatoMode(enabled)
 	end
 end
 
-local MAP_GUI_NAMES  = { 'Map', 'Minimap', 'HUD_Map', 'WorldMap', 'MapGui' }
-local hiddenMapGuis  = {}
+local MAP_GUI_NAMES = { 'Map', 'Minimap', 'HUD_Map', 'WorldMap', 'MapGui' }
+local hiddenMapGuis = {}
 
 local function setHideMap(enabled)
 	if enabled then
@@ -1345,127 +1353,10 @@ MapSection:Toggle({
 	Callback = function(v) setHideMap(v) end
 })
 
--- =================== DYNAMIC ISLAND ===================
-
-local DI_Frame     = nil
-local DI_Dragging  = false
-local DI_DragInput = nil
-local DI_DragStart = nil
-local DI_StartPos  = nil
-local libMainFrame = nil
-
 local MENU_KEYS = {
 	[Enum.KeyCode.LeftShift]  = true,
 	[Enum.KeyCode.RightShift] = true,
 }
-
-local function buildDynamicIsland()
-	local UIS = game:GetService("UserInputService")
-
-	local sg = Instance.new("ScreenGui")
-	sg.Name           = "AutoFish_DynamicIsland"
-	sg.ResetOnSpawn   = false
-	sg.DisplayOrder   = 9999
-	sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-	pcall(function() sg.Parent = game:GetService("CoreGui") end)
-	if not sg.Parent then sg.Parent = LocalPlayer.PlayerGui end
-
-	local pill = Instance.new("Frame")
-	pill.Name             = "Island"
-	pill.AnchorPoint      = Vector2.new(0.5, 0)
-	pill.Size             = UDim2.new(0, 152, 0, 36)
-	pill.Position         = UDim2.new(0.5, 0, 0, 10)
-	pill.BackgroundColor3 = Color3.fromRGB(10, 10, 10)
-	pill.BorderSizePixel  = 0
-    pill.Active           = true   -- เพิ่มบรรทัดนี้
-	pill.Visible          = false
-	pill.ZIndex           = 10
-	pill.Parent           = sg
-
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(1, 0)
-	corner.Parent = pill
-
-	local stroke = Instance.new("UIStroke")
-	stroke.Color        = Color3.fromRGB(80, 180, 255)
-	stroke.Thickness    = 1.2
-	stroke.Transparency = 0.35
-	stroke.Parent = pill
-
-	local dot = Instance.new("Frame")
-	dot.Size             = UDim2.new(0, 8, 0, 8)
-	dot.AnchorPoint      = Vector2.new(0, 0.5)
-	dot.Position         = UDim2.new(0, 12, 0.5, 0)
-	dot.BackgroundColor3 = Color3.fromRGB(120, 120, 120)
-	dot.BorderSizePixel  = 0
-	dot.ZIndex           = 11
-	dot.Parent           = pill
-	local dotCorner = Instance.new("UICorner")
-	dotCorner.CornerRadius = UDim.new(1, 0)
-	dotCorner.Parent = dot
-
-	local lbl = Instance.new("TextLabel")
-	lbl.Size               = UDim2.new(1, -10, 1, 0)
-	lbl.Position           = UDim2.new(0, 10, 0, 0)
-	lbl.BackgroundTransparency = 1
-	lbl.Text               = "🎣  Auto Fish"
-	lbl.TextColor3         = Color3.fromRGB(255, 255, 255)
-	lbl.Font               = Enum.Font.GothamBold
-	lbl.TextSize           = 13
-	lbl.ZIndex             = 11
-	lbl.Parent             = pill
-
-	pill.InputBegan:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1
-		or input.UserInputType == Enum.UserInputType.Touch then
-			DI_Dragging  = true
-			DI_DragInput = input
-			DI_DragStart = input.Position
-			DI_StartPos  = pill.Position
-			-- กัน input ทะลุเกม
-			if game:GetService("UserInputService").MouseEnabled then
-				pcall(function()
-					input:GetService()  -- sink the event
-				end)
-			end
-		end
-	end)
-
-	UIS.InputChanged:Connect(function(input)
-		if DI_Dragging and input == DI_DragInput then
-			local d = input.Position - DI_DragStart
-			pill.Position = UDim2.new(
-				DI_StartPos.X.Scale, DI_StartPos.X.Offset + d.X,
-				DI_StartPos.Y.Scale, DI_StartPos.Y.Offset + d.Y
-			)
-		end
-	end)
-
-	UIS.InputEnded:Connect(function(input)
-		if input == DI_DragInput and DI_Dragging then
-			local d = input.Position - DI_DragStart
-			if math.abs(d.X) < 6 and math.abs(d.Y) < 6 then
-				pill.Position = UDim2.new(0.5, 0, 0, 10)
-				pill.Visible = false
-				if libMainFrame then
-					libMainFrame.Visible = true
-				end
-			end
-			DI_Dragging = false
-		end
-	end)
-
-	RunService.Heartbeat:Connect(function()
-		if pill.Visible then
-			dot.BackgroundColor3 = autoFishing
-				and Color3.fromRGB(80, 220, 100)
-				or  Color3.fromRGB(120, 120, 120)
-			lbl.Text = autoFishing and "🎣  Fishing..." or "🎣  Auto Fish"
-		end
-	end)
-
-	DI_Frame = pill
-end
 
 -- =================== FISH PAGE UI ===================
 
@@ -1496,24 +1387,22 @@ mainToggleRef = FishSection:Toggle({
 FishSection:Toggle({
 	Name     = 'Auto Equip Best Rod',
 	Flag     = 'AutoBestRod',
-	Default  = true,
+	Default  = savedConfig.autoBestRod ~= nil and savedConfig.autoBestRod or true,
 	Callback = function(v)
 		autoBestRod = v
-		if v and running then
-			task.spawn(doEquipBestRod)
-		end
+		if v and running then task.spawn(doEquipBestRod) end
+		saveConfig()
 	end
 })
 
 FishSection:Toggle({
 	Name     = 'Auto Equip Bait',
 	Flag     = 'AutoBait',
-	Default  = true,
+	Default  = savedConfig.autoBait ~= nil and savedConfig.autoBait or true,
 	Callback = function(v)
 		autoBait = v
-		if v and running then
-			task.spawn(doEquipBait)
-		end
+		if v and running then task.spawn(doEquipBait) end
+		saveConfig()
 	end
 })
 
@@ -1523,13 +1412,15 @@ local PresetSection = FishPage:Section({ Name = 'Stop On Catch — Lost Items', 
 
 for _, itemName in ipairs(PRESET_STOP_ITEMS) do
 	local flagKey = 'StopPreset_' .. itemName:gsub('%s+', '_')
+	local saved   = savedConfig.stopList
 	PresetSection:Toggle({
 		Name     = itemName,
 		Flag     = flagKey,
-		Default  = false,
+		Default  = saved and saved[itemName] == true or false,
 		Callback = function(v)
 			stopList[itemName] = v or nil
 			updateStats()
+			saveConfig()
 		end
 	})
 end
@@ -1540,16 +1431,6 @@ local StatsSection = FishPage:Section({ Name = 'Live Stats', Side = 2 })
 
 statsLabel = StatsSection:Label('Items Caught: 0\nLast Caught: None\nLast Attempt: None\nStatus: Idle\nAuto Fish: OFF\nStop Items: None')
 
-task.defer(function()
-	task.wait(0.5)
-	for _, obj in ipairs(game:GetService("CoreGui"):GetDescendants()) do
-		if obj:IsA("TextLabel") and tostring(obj.Text):find("Items Caught") then
-			obj.TextXAlignment = Enum.TextXAlignment.Left
-			obj.TextWrapped    = true
-		end
-	end
-end)
-
 StatsSection:Button({
 	Name     = 'Refresh',
 	Flag     = 'RefreshStats',
@@ -1559,46 +1440,54 @@ StatsSection:Button({
 -- =================== WEBHOOK PAGE UI ===================
 
 local WebSection = WebhookPage:Section({ Name = 'Discord Webhook', Side = 1 })
+
 WebSection:Textbox({
 	Flag        = 'WebhookURL',
-	Default     = '',
+	Default     = savedConfig.webhookURL or '',
 	Numeric     = false,
 	Placeholder = 'https://discord.com/api/webhooks/...',
 	Finished    = true,
-	Callback    = function(text) webhookURL = text end
+	Callback    = function(text) webhookURL = text; saveConfig() end
+})
+
+WebSection:Textbox({
+	Flag        = 'WebhookPingID',
+	Default     = savedConfig.webhookPingID or '',
+	Numeric     = true,
+	Placeholder = 'Discord User ID (สำหรับ tag เมื่อหยุด)',
+	Finished    = true,
+	Callback    = function(text) webhookPingID = text; saveConfig() end
 })
 
 WebSection:Toggle({
 	Name     = 'Enable Webhook',
 	Flag     = 'WebhookEnabled',
-	Default  = false,
+	Default  = savedConfig.webhookEnabled or false,
 	Callback = function(v)
 		webhookEnabled = v
 		notify('Webhook', v and 'เปิด webhook แล้ว' or 'ปิด webhook แล้ว', 2)
+		saveConfig()
 	end
 })
 
 local WebEventsSection = WebhookPage:Section({ Name = 'Notification Events', Side = 2 })
 
 WebEventsSection:Toggle({
-	Name     = 'Notify on Start',
-	Flag     = 'WebhookOnStart',
-	Default  = true,
-	Callback = function(v) webhookOnStart = v end
+	Name     = 'Notify on Start', Flag = 'WebhookOnStart',
+	Default  = savedConfig.webhookOnStart ~= nil and savedConfig.webhookOnStart or true,
+	Callback = function(v) webhookOnStart = v; saveConfig() end
 })
 
 WebEventsSection:Toggle({
-	Name     = 'Notify on Catch',
-	Flag     = 'WebhookOnCatch',
-	Default  = true,
-	Callback = function(v) webhookOnCatch = v end
+	Name     = 'Notify on Catch', Flag = 'WebhookOnCatch',
+	Default  = savedConfig.webhookOnCatch ~= nil and savedConfig.webhookOnCatch or true,
+	Callback = function(v) webhookOnCatch = v; saveConfig() end
 })
 
 WebEventsSection:Toggle({
-	Name     = 'Notify on Stop',
-	Flag     = 'WebhookOnStop',
-	Default  = true,
-	Callback = function(v) webhookOnStop = v end
+	Name     = 'Notify on Stop', Flag = 'WebhookOnStop',
+	Default  = savedConfig.webhookOnStop ~= nil and savedConfig.webhookOnStop or true,
+	Callback = function(v) webhookOnStop = v; saveConfig() end
 })
 
 local WebToolsSection = WebhookPage:Section({ Name = 'Tools & Stats', Side = 1 })
@@ -1646,60 +1535,67 @@ WebToolsSection:Button({
 	end
 })
 
+-- =================== STATS HEARTBEAT (throttled) ===================
+
+-- หา TextLabel ครั้งเดียวหลัง UI โหลด แทน scan ทุก frame
+local statsTextLabel  = nil
+local heartbeatFrame  = 0
+local STATS_INTERVAL  = 30   -- update ทุก ~30 heartbeats (~0.5s)
+
+RunService.Heartbeat:Connect(function()
+	if not statsLabel then return end
+	heartbeatFrame += 1
+	if heartbeatFrame % STATS_INTERVAL ~= 0 then return end
+
+	local names = {}
+	for k, v in pairs(stopList) do
+		if v then table.insert(names, k) end
+	end
+	local text = 'Items Caught: ' .. fishCaught
+		.. '\nLast Caught: ' .. lastCaught
+		.. '\nLast Attempt: ' .. lastAttempt
+		.. '\nStatus: ' .. fishStatus
+		.. '\nAuto Fish: ' .. (autoFishing and 'ON' or 'OFF')
+		.. '\nStop Items: ' .. (#names > 0 and table.concat(names, ', ') or 'None')
+
+	pcall(function() statsLabel:Update(text) end)
+
+	-- one-time scan; หยุดหลังเจอแล้ว
+	if not statsTextLabel then
+		for _, obj in ipairs(game:GetService("CoreGui"):GetDescendants()) do
+			if obj:IsA('TextLabel') and obj.Text:find('Items Caught') then
+				statsTextLabel = obj
+				break
+			end
+		end
+	end
+
+	if statsTextLabel and statsTextLabel.Parent then
+		statsTextLabel.TextXAlignment = Enum.TextXAlignment.Left
+	end
+end)
+
 -- =================== INIT ===================
-
-notify(
-	'Auto Fish Loaded',
-	'[LeftShift / RightShift] เปิด/ปิด UI',
-	5
-)
-
-local preInitGuis = {}
-for _, gui in ipairs(game:GetService("CoreGui"):GetChildren()) do
-	preInitGuis[gui] = true
-end
 
 Window:Init()
 
-buildDynamicIsland()
+Library.Unload = function(self)
+	Window:SetOpen(false)
+end
+
+notify(
+	'Auto Fish Loaded',
+	'[RightShift] เปิด/ปิด UI',
+	5
+)
 
 -- =================== MENU KEYBIND ===================
 
 do
 	local UIS = game:GetService("UserInputService")
-	UIS.InputBegan:Connect(function(input, gameProcessed)
+	UIS.InputBegan:Connect(function(input)
 		if not MENU_KEYS[input.KeyCode] then return end
-		if not libMainFrame then return end
-		local show = not libMainFrame.Visible
-		libMainFrame.Visible = show
-		if DI_Frame then
-			if not show then
-				DI_Frame.Position = UDim2.new(0.5, 0, 0, 10)
-			end
-			DI_Frame.Visible = not show
-		end
+		local show = not Window.IsOpen
+		Window:SetOpen(show)
 	end)
 end
-
-task.defer(function()
-	task.wait(0.3)
-	for _, gui in ipairs(game:GetService("CoreGui"):GetChildren()) do
-		if not preInitGuis[gui] and gui:IsA("ScreenGui") then
-			for _, child in ipairs(gui:GetChildren()) do
-				if child:IsA("Frame") then
-					libMainFrame = child
-					child:GetPropertyChangedSignal("Visible"):Connect(function()
-						if DI_Frame then
-							if not child.Visible then
-								DI_Frame.Position = UDim2.new(0.5, 0, 0, 10)
-							end
-							DI_Frame.Visible = not child.Visible
-						end
-					end)
-					break
-				end
-			end
-			break
-		end
-	end
-end)
